@@ -2,10 +2,26 @@ const dns = require("dns");
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const { protect, authorize } = require('../middleware/auth');
 const College = require('../models/College');
 const Program = require('../models/Program');
 const User = require('../models/User');
+
+const normalizeCollegeId = async (rawCollegeId) => {
+  if (!rawCollegeId) return null;
+
+  if (mongoose.Types.ObjectId.isValid(rawCollegeId)) {
+    const byId = await College.findById(rawCollegeId);
+    if (byId) return byId._id;
+  }
+
+  const normalized = rawCollegeId.toString().trim().toUpperCase();
+  const byCode = await College.findOne({ code: normalized });
+  if (byCode) return byCode._id;
+
+  return null;
+};
 
 // All routes are protected and only for university admins
 router.use(protect);
@@ -45,9 +61,24 @@ router.get('/colleges', async (req, res) => {
   try {
     const colleges = await College.find().sort({ createdAt: -1 });
 
+    // Calculate student/faculty counts from actual users so dashboard stays accurate
+    const mappedColleges = await Promise.all(colleges.map(async (college) => {
+      const studentCount = await User.countDocuments({ collegeId: college._id, role: 'student' });
+      const facultyCount = await User.countDocuments({ collegeId: college._id, role: 'college_admin' });
+
+      // Keep existing stored counts in sync (optional)
+      await College.findByIdAndUpdate(college._id, { studentCount, facultyCount }, { new: true });
+
+      return {
+        ...college.toObject(),
+        totalStudents: studentCount,
+        totalFaculty: facultyCount,
+      };
+    }));
+
     res.json({
       success: true,
-      data: colleges,
+      data: mappedColleges,
     });
   } catch (error) {
     res.status(500).json({
@@ -371,10 +402,17 @@ router.post('/college-admins', async (req, res) => {
       });
     }
 
-    const college = await College.findById(collegeId);
+    const resolvedCollegeId = await normalizeCollegeId(collegeId);
+    if (!resolvedCollegeId) {
+      return res.status(400).json({ success: false, message: 'Invalid collegeId. Use a valid ObjectId or college code.' });
+    }
+
+    const college = await College.findById(resolvedCollegeId);
     if (!college) {
       return res.status(404).json({ success: false, message: 'College not found' });
     }
+
+    collegeId = resolvedCollegeId;
 
     const existing = await User.findOne({ email: email.toLowerCase() });
     if (existing) {

@@ -1,4 +1,4 @@
-import { apiRequest } from '../config/api';
+import { apiRequest, API_URL } from '../config/api';
 
 export interface LoginCredentials {
   email: string;
@@ -19,6 +19,7 @@ export const authService = {
   login: async (credentials: LoginCredentials) => {
     try {
       console.log('🔐 AuthService: Attempting login with:', credentials);
+      console.log('🔐 AuthService: API URL being used:', API_URL);
       const data = await apiRequest('/auth/login', 'POST', credentials);
       console.log('🔐 AuthService: API response:', data);
       
@@ -54,8 +55,38 @@ export const authService = {
     return data.data;
   },
 
+  createCollege: async (payload: { name: string; code: string; address: string; dean: string; establishedYear: number }) => {
+    const data = await apiRequest('/university/colleges', 'POST', payload);
+    return data.data;
+  },
+
   createCollegeAdmin: async (payload: { name: string; email: string; collegeId: string; facultyInfo?: any }) => {
     const data = await apiRequest('/university/college-admins', 'POST', payload);
+    return data.data;
+  },
+
+  getPrograms: async () => {
+    const data = await apiRequest('/university/programs', 'GET');
+    return data.data;
+  },
+
+  createProgram: async (payload: { name: string; code: string; duration: string; degree: string; college: string; department: string }) => {
+    const data = await apiRequest('/university/programs', 'POST', payload);
+    return data.data;
+  },
+
+  enrollStudentInCourse: async (courseId: string, studentId: string) => {
+    const data = await apiRequest(`/college/courses/${courseId}/enroll`, 'POST', { studentId });
+    return data;
+  },
+
+  unenrollStudentFromCourse: async (courseId: string, studentId: string) => {
+    const data = await apiRequest(`/college/courses/${courseId}/enroll/${studentId}`, 'DELETE');
+    return data;
+  },
+
+  getEnrolledStudents: async (courseId: string) => {
+    const data = await apiRequest(`/college/courses/${courseId}/students`, 'GET');
     return data.data;
   },
 
@@ -66,6 +97,51 @@ export const authService = {
 
   createCollegeStudent: async (payload: { name: string; email: string; studentInfo?: any }) => {
     const data = await apiRequest('/college/students', 'POST', payload);
+    return data.data;
+  },
+
+  getCollegeFaculty: async () => {
+    const data = await apiRequest('/college/faculty', 'GET');
+    return data.data;
+  },
+
+  createCollegeFaculty: async (payload: { name: string; email: string; facultyInfo?: any }) => {
+    const data = await apiRequest('/college/faculty', 'POST', payload);
+    return data.data;
+  },
+
+  getCollegeTimetable: async () => {
+    const data = await apiRequest('/college/timetable', 'GET');
+    return data.data;
+  },
+
+  createCollegeTimetable: async (payload: { course: string; day: string; startTime: string; endTime: string; room: string; faculty: string }) => {
+    const data = await apiRequest('/college/timetable', 'POST', payload);
+    return data.data;
+  },
+
+  getCollegeAttendance: async () => {
+    const data = await apiRequest('/college/attendance', 'GET');
+    return data.data;
+  },
+
+  createCollegeAttendance: async (payload: { course: string; student: string; date: string; status: string }) => {
+    const data = await apiRequest('/college/attendance', 'POST', payload);
+    return data.data;
+  },
+
+  getStudentCourses: async () => {
+    const data = await apiRequest('/student/courses', 'GET');
+    return data.data;
+  },
+
+  getStudentAttendance: async () => {
+    const data = await apiRequest('/student/attendance', 'GET');
+    return data.data;
+  },
+
+  getStudentResults: async () => {
+    const data = await apiRequest('/student/results', 'GET');
     return data.data;
   },
 

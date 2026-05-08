@@ -3,6 +3,7 @@ dns.setServers(["1.1.1.1", "8.8.8.8"]);
 const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../middleware/auth');
+const User = require('../models/User');
 const Course = require('../models/Course');
 const Attendance = require('../models/Attendance');
 const Assignment = require('../models/Assignment');
@@ -270,10 +271,35 @@ router.get('/timetable', async (req, res) => {
     const studentCourses = await Course.find({ enrolledStudents: studentId }).select('_id');
     const courseIds = studentCourses.map((course) => course._id);
 
+    console.log('\n=== TIMETABLE DEBUG ===');
+    console.log('👤 Student ID:', studentId.toString());
+    console.log('📚 Enrolled course IDs:', courseIds.map(id => id.toString()));
+
     const timetable = await Timetable.find({ course: { $in: courseIds } })
       .populate('course', 'name code')
       .populate('faculty', 'name email')
       .sort({ day: 1, startTime: 1 });
+
+    console.log(`📅 Found ${timetable.length} timetable entries`);
+    
+    if (timetable.length > 0) {
+      console.log('\n📊 Timetable entries:');
+      timetable.forEach((entry, idx) => {
+        console.log(`${idx + 1}. Course: ${entry.course?.name || 'N/A'} (${entry.course?._id || 'N/A'})`);
+        console.log(`   Faculty: ${entry.faculty?.name || 'N/A'} (${entry.faculty?._id || 'N/A'})`);
+        console.log(`   Day: ${entry.day}, Time: ${entry.startTime}-${entry.endTime}, Room: ${entry.room}`);
+      });
+      
+      // Check for duplicates
+      const ids = timetable.map(t => t._id.toString());
+      const uniqueIds = [...new Set(ids)];
+      if (ids.length !== uniqueIds.length) {
+        console.warn('⚠️ Duplicate timetable entries in database!');
+        console.log('Total entries:', ids.length, 'Unique IDs:', uniqueIds.length);
+      }
+    }
+    
+    console.log('=== END TIMETABLE DEBUG ===\n');
 
     res.json({
       success: true,
@@ -288,35 +314,123 @@ router.get('/timetable', async (req, res) => {
 });
 
 // @route   GET /api/student/materials
-// @desc    Get course materials
+// @desc    Get course materials for student's college
 // @access  Private (Student)
 router.get('/materials', async (req, res) => {
   try {
     const studentId = req.user._id;
+    const studentCollege = req.user.collegeId;
     const { courseId } = req.query;
 
-    // Get enrolled courses
-    let query = {};
-    if (courseId) {
-      query.course = courseId;
+    console.log('\n=== MATERIALS DEBUG ===');
+    console.log('📚 Student ID:', studentId.toString());
+    console.log('🏫 Student College:', studentCollege);
+
+    let materials = [];
+
+    if (courseId && courseId !== 'all') {
+      // Filter by specific course
+      console.log('\n🔍 Filtering by specific course:', courseId);
+      materials = await Material.find({ 
+        course: courseId,
+        college: studentCollege  // Ensure it's from same college
+      })
+        .populate('course', 'name code')
+        .populate('uploadedBy', 'name email')
+        .sort({ createdAt: -1 })
+        .lean();
+      console.log(`✅ Found ${materials.length} materials for course ${courseId}`);
     } else {
-      const studentCourses = await Course.find({
-        enrolledStudents: studentId,
-      }).select('_id');
-      const courseIds = studentCourses.map((course) => course._id);
-      query.course = { $in: courseIds };
+      // Get ALL materials from student's college (like college admin sees)
+      // This ensures students see all materials available in their college
+      console.log('\n🔎 SEARCHING for all materials in student college');
+      
+      materials = await Material.find({ 
+        college: studentCollege
+      })
+        .populate('course', 'name code')
+        .populate('uploadedBy', 'name email')
+        .sort({ createdAt: -1 })
+        .lean();
+
+      console.log(`✅ Found ${materials.length} total materials in college`);
+      
+      if (materials.length > 0) {
+        console.log('\n📊 Materials breakdown:');
+        const courseGroups = {};
+        materials.forEach(m => {
+          const courseName = m.course?.name || 'Unknown Course';
+          if (!courseGroups[courseName]) courseGroups[courseName] = [];
+          courseGroups[courseName].push(m.title);
+        });
+        
+        Object.entries(courseGroups).forEach(([course, titles]) => {
+          console.log(`  ${course}: ${titles.length} materials`);
+          titles.forEach(t => console.log(`    - "${t}"`));
+        });
+      }
     }
-
-    const materials = await Material.find(query)
-      .populate('course', 'name code')
-      .populate('uploadedBy', 'name email')
-      .sort({ createdAt: -1 });
-
+    
+    console.log(`\n✅ FINAL RESULT: ${materials.length} materials to return`);
+    console.log('=== END DEBUG ===\n');
+    
     res.json({
       success: true,
       data: materials,
     });
   } catch (error) {
+    console.error('❌ Error fetching materials:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+// @route   GET /api/student/faculty
+// @desc    Get all faculty members for student's college
+// @access  Private (Student)
+router.get('/faculty', async (req, res) => {
+  try {
+    const studentCollege = req.user.collegeId;
+
+    console.log('\n=== FACULTY DEBUG ===');
+    console.log('🏫 Student College:', studentCollege);
+
+    // Return all faculty-like users in the same college:
+    // - college_admin role (as faculty/admin users)
+    // - any user with explicit facultyInfo set
+    const faculty = await User.find({
+      collegeId: studentCollege,
+      $or: [
+        { role: 'college_admin' },
+        { facultyInfo: { $exists: true, $ne: {} } }
+      ]
+    })
+      .select('name email facultyInfo role')
+      .sort({ name: 1 });
+
+    console.log(`✅ Found ${faculty.length} faculty members`);
+    
+    if (faculty.length > 0) {
+      console.log('\n📊 Faculty members:');
+      faculty.forEach((f, idx) => {
+        console.log(`${idx + 1}. ${f.name} (${f.email})`);
+        if (f.facultyInfo) {
+          console.log(`   Department: ${f.facultyInfo.department || 'N/A'}`);
+          console.log(`   Specialization: ${f.facultyInfo.specialization || 'N/A'}`);
+        }
+      });
+    }
+    
+    console.log('=== END FACULTY DEBUG ===\n');
+
+    res.json({
+      success: true,
+      data: faculty,
+    });
+  } catch (error) {
+    console.error('❌ Error fetching faculty:', error);
     res.status(500).json({
       success: false,
       message: error.message,

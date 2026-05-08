@@ -12,26 +12,34 @@ export default function UniversityAdminDashboard() {
 
   const [colleges, setColleges] = useState<College[]>([]);
 
-  const [programs, setPrograms] = useState<Program[]>([
-    { id: 'p1', name: 'Computer Science', code: 'CS', duration: '4 years', degree: 'B.Tech', collegeId: 'col1' },
-    { id: 'p2', name: 'Mechanical Engineering', code: 'ME', duration: '4 years', degree: 'B.Tech', collegeId: 'col1' },
-    { id: 'p3', name: 'Business Administration', code: 'MBA', duration: '2 years', degree: 'MBA', collegeId: 'col2' },
-  ]);
+  const [programs, setPrograms] = useState<Program[]>([]);
 
   const [showAddCollege, setShowAddCollege] = useState(false);
   const [showAddProgram, setShowAddProgram] = useState(false);
   const [newCollege, setNewCollege] = useState({ name: '', code: '', address: '', establishedYear: 2024, dean: '' });
-  const [newProgram, setNewProgram] = useState({ name: '', code: '', duration: '', degree: '', collegeId: '' });
+  const [newProgram, setNewProgram] = useState({ name: '', code: '', duration: '', degree: '', department: '', collegeId: '' });
 
   useEffect(() => {
     async function loadData() {
       try {
-        const [adminsData, collegesData] = await Promise.all([
+        const [adminsData, collegesData, programsData] = await Promise.all([
           authService.getCollegeAdmins(),
           authService.getColleges(),
+          authService.getPrograms(),
         ]);
+
         setCollegeAdmins(adminsData || []);
         setColleges(collegesData || []);
+
+        setPrograms((programsData || []).map((program: any) => ({
+          id: program._id || program.id,
+          name: program.name,
+          code: program.code,
+          duration: program.duration,
+          degree: program.degree,
+          department: program.department,
+          collegeId: program.college?._id || program.college || '',
+        })));
       } catch (err) {
         console.error('Unable to fetch data', err);
       }
@@ -40,14 +48,30 @@ export default function UniversityAdminDashboard() {
     loadData();
   }, []);
 
-  const handleAddCollege = () => {
-    if (newCollege.name && newCollege.code) {
-      setColleges([...colleges, { ...newCollege, id: `col${colleges.length + 1}`, totalStudents: 0, totalFaculty: 0 }]);
+  const handleAddCollege = async () => {
+    if (!newCollege.name || !newCollege.code || !newCollege.address || !newCollege.dean) {
+      alert('Please fill in all college details');
+      return;
+    }
+
+    try {
+      const createdCollege = await authService.createCollege({
+        name: newCollege.name,
+        code: newCollege.code,
+        address: newCollege.address,
+        dean: newCollege.dean,
+        establishedYear: newCollege.establishedYear,
+      });
+
+      setColleges([...colleges, { ...createdCollege, totalStudents: createdCollege.totalStudents || 0, totalFaculty: createdCollege.totalFaculty || 0 }]);
       setNewCollege({ name: '', code: '', address: '', establishedYear: 2024, dean: '' });
       setShowAddCollege(false);
+      alert('College created successfully in database');
+    } catch (error: any) {
+      console.error('Unable to create college:', error);
+      alert(error?.message || 'Failed to create college');
     }
   };
-
   const handleAddCollegeAdmin = async () => {
     if (!newCollegeAdmin.name || !newCollegeAdmin.email || !newCollegeAdmin.collegeId) {
       alert('Please provide name, email and college');
@@ -72,11 +96,38 @@ export default function UniversityAdminDashboard() {
     }
   };
 
-  const handleAddProgram = () => {
-    if (newProgram.name && newProgram.code && newProgram.collegeId) {
-      setPrograms([...programs, { ...newProgram, id: `p${programs.length + 1}` }]);
-      setNewProgram({ name: '', code: '', duration: '', degree: '', collegeId: '' });
+  const handleAddProgram = async () => {
+    if (!newProgram.name || !newProgram.code || !newProgram.degree || !newProgram.duration || !newProgram.department || !newProgram.collegeId) {
+      alert('Please fill in all program details');
+      return;
+    }
+
+    try {
+      const createdProgram = await authService.createProgram({
+        name: newProgram.name,
+        code: newProgram.code,
+        duration: newProgram.duration,
+        degree: newProgram.degree,
+        department: newProgram.department,
+        college: newProgram.collegeId,
+      });
+
+      setPrograms([...programs, {
+        id: createdProgram._id || createdProgram.id,
+        name: createdProgram.name,
+        code: createdProgram.code,
+        duration: createdProgram.duration,
+        degree: createdProgram.degree,
+        department: createdProgram.department,
+        collegeId: createdProgram.college?._id || createdProgram.college,
+      }]);
+
+      setNewProgram({ name: '', code: '', duration: '', degree: '', department: '', collegeId: '' });
       setShowAddProgram(false);
+      alert('Program created successfully in database');
+    } catch (error: any) {
+      console.error('Unable to create program:', error);
+      alert(error?.message || 'Failed to create program');
     }
   };
 
@@ -101,8 +152,8 @@ export default function UniversityAdminDashboard() {
     }
   };
 
-  const totalStudents = colleges.reduce((sum, col) => sum + col.totalStudents, 0);
-  const totalFaculty = colleges.reduce((sum, col) => sum + col.totalFaculty, 0);
+  const totalStudents = colleges.reduce((sum, col) => sum + (col.totalStudents || 0), 0);
+  const totalFaculty = colleges.reduce((sum, col) => sum + (col.totalFaculty || 0), 0);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -200,8 +251,8 @@ export default function UniversityAdminDashboard() {
                       <p className="text-sm text-gray-600">Dean: {college.dean}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm text-gray-600">{college.totalStudents} Students</p>
-                      <p className="text-sm text-gray-600">{college.totalFaculty} Faculty</p>
+                      <p className="text-sm text-gray-600">{(college.totalStudents || 0).toLocaleString()} Students</p>
+                      <p className="text-sm text-gray-600">{(college.totalFaculty || 0).toLocaleString()} Faculty</p>
                     </div>
                   </div>
                 ))}
@@ -325,6 +376,7 @@ export default function UniversityAdminDashboard() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Degree</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Duration</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">College</th>
                   </tr>
                 </thead>
@@ -335,8 +387,9 @@ export default function UniversityAdminDashboard() {
                       <td className="px-6 py-4 text-sm text-gray-600">{program.code}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{program.degree}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{program.duration}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{program.department || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">
-                        {colleges.find(c => c.id === program.collegeId)?.name}
+                        {colleges.find(c => (c._id || c.id) === program.collegeId)?.name || 'Unknown'}
                       </td>
                     </tr>
                   ))}
@@ -375,6 +428,13 @@ export default function UniversityAdminDashboard() {
                       placeholder="Duration (e.g., 4 years)"
                       value={newProgram.duration}
                       onChange={(e) => setNewProgram({ ...newProgram, duration: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Department (e.g., Computer Science)"
+                      value={newProgram.department}
+                      onChange={(e) => setNewProgram({ ...newProgram, department: e.target.value })}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
                     <select
@@ -417,12 +477,12 @@ export default function UniversityAdminDashboard() {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Student Distribution</h3>
                 <div className="space-y-3">
                   {colleges.map((college) => {
-                    const percentage = (college.totalStudents / totalStudents) * 100;
+                    const percentage = totalStudents > 0 ? ((college.totalStudents || 0) / totalStudents) * 100 : 0;
                     return (
                       <div key={college.id}>
                         <div className="flex justify-between text-sm mb-1">
                           <span className="text-gray-700">{college.name}</span>
-                          <span className="text-gray-900 font-medium">{college.totalStudents} ({percentage.toFixed(1)}%)</span>
+                          <span className="text-gray-900 font-medium">{college.totalStudents || 0} ({percentage.toFixed(1)}%)</span>
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-2">
                           <div
@@ -440,12 +500,12 @@ export default function UniversityAdminDashboard() {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Faculty Distribution</h3>
                 <div className="space-y-3">
                   {colleges.map((college) => {
-                    const percentage = (college.totalFaculty / totalFaculty) * 100;
+                    const percentage = totalFaculty > 0 ? ((college.totalFaculty || 0) / totalFaculty) * 100 : 0;
                     return (
                       <div key={college.id}>
                         <div className="flex justify-between text-sm mb-1">
                           <span className="text-gray-700">{college.name}</span>
-                          <span className="text-gray-900 font-medium">{college.totalFaculty} ({percentage.toFixed(1)}%)</span>
+                          <span className="text-gray-900 font-medium">{college.totalFaculty || 0} ({percentage.toFixed(1)}%)</span>
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-2">
                           <div
@@ -463,7 +523,8 @@ export default function UniversityAdminDashboard() {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Student-Faculty Ratio</h3>
                 <div className="space-y-4">
                   {colleges.map((college) => {
-                    const ratio = (college.totalStudents || 0 / college.totalFaculty || 0).toFixed(1);
+                    const facultyCount = college.totalFaculty || 1;
+                    const ratio = ((college.totalStudents || 0) / facultyCount).toFixed(1);
                     return (
                       <div key={college._id || college.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                         <span className="text-gray-700">{college.name}</span>
